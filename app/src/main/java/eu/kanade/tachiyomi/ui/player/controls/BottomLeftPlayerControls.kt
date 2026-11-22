@@ -26,12 +26,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
 import dev.vivvvek.seeker.Segment
+import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.ui.player.Sheets
 import eu.kanade.tachiyomi.ui.player.components.CurrentChapter
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.Gesture
 import mihon.icons.materialsymbols.rounded.MobileRotate
 import mihon.icons.materialsymbols.roundedfilled.LockOpen
 import tachiyomi.i18n.aniyomi.AYMR
@@ -43,6 +47,8 @@ fun BottomLeftPlayerControls(
     playbackSpeed: Float,
     currentChapter: Segment?,
     showChapterIndicator: Boolean,
+    areGesturesLocked: Boolean,
+    onToggleGestureLock: () -> Unit,
     onLockControls: () -> Unit,
     onCycleRotation: () -> Unit,
     onPlaybackSpeedChange: (Float) -> Unit,
@@ -53,6 +59,15 @@ fun BottomLeftPlayerControls(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        ControlsButton(
+            icon = if (areGesturesLocked) {
+                ImageVector.vectorResource(id = R.drawable.gesture_lock)
+            } else {
+                MaterialSymbols.Rounded.Gesture
+            },
+            onClick = onToggleGestureLock,
+            verticalSpacing = MaterialTheme.padding.small,
+        )
         ControlsButton(
             MaterialSymbols.RoundedFilled.LockOpen,
             onClick = onLockControls,
@@ -90,6 +105,8 @@ private fun BottomLeftPlayerControlsPreview() {
         playbackSpeed = 1.0f,
         currentChapter = Segment("Opening", 43f),
         showChapterIndicator = true,
+        areGesturesLocked = false,
+        onToggleGestureLock = { },
         onLockControls = { },
         onCycleRotation = { },
         onPlaybackSpeedChange = { },

@@ -492,6 +492,8 @@ fun PlayerControls(
                     playbackSpeed = playbackSpeed ?: uiData.playerSpeedPref,
                     showChapterIndicator = uiData.showChapterIndicator,
                     currentChapter = stateData.currentChapter,
+                    areGesturesLocked = uiData.isGesturesLocked,
+                    onToggleGestureLock = { onPlayerEvent(PlayerEvent.ToggleGestureLock) },
                     onLockControls = { onPlayerEvent(PlayerEvent.LockControls(true)) },
                     onCycleRotation = { onPlayerEvent(PlayerEvent.CycleRotation) },
                     onPlaybackSpeedChange = { onPlayerEvent(PlayerEvent.ChangeSpeed(it)) },

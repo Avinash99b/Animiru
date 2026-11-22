@@ -590,6 +590,9 @@ class PlayerViewModel(
             is PlayerEvent.LockControls -> {
                 updateUiData { it.copy(isControlsLocked = event.lock) }
             }
+            is PlayerEvent.ToggleGestureLock -> {
+                updateUiData { it.copy(isGesturesLocked = !it.isGesturesLocked) }
+            }
             is PlayerEvent.NextEpisode -> {
                 nextEpisode(event.next)
             }
@@ -3985,6 +3988,7 @@ class PlayerViewModel(
         val statusBarShown: Boolean = false,
         val seekBarShown: Boolean = true,
         val isControlsLocked: Boolean = false,
+        val isGesturesLocked: Boolean = false,
         val playerUpdate: PlayerUpdates = PlayerUpdates.None,
         val isBrightnessSliderShown: Boolean = false,
         val isVolumeSliderShown: Boolean = false,
@@ -4058,6 +4062,7 @@ class PlayerViewModel(
         data class ShowVolumeSlider(val show: Boolean) : PlayerEvent
         data object SkipIntro : PlayerEvent
         data object ToggleDurationTimer : PlayerEvent
+        data object ToggleGestureLock : PlayerEvent
     }
 
     sealed interface Event {

@@ -60,6 +60,7 @@ fun GestureHandler(
     panEnabled: Boolean,
     longPressEnabled: Boolean,
     areControlsLocked: Boolean,
+    areGesturesLocked: Boolean,
     interactionSource: MutableInteractionSource,
     onGestureEvent: (GestureEvent) -> Unit,
 ) {
@@ -69,7 +70,7 @@ fun GestureHandler(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeGestures)
-            .pointerInput(areControlsLocked) {
+            .pointerInput(areControlsLocked, areGesturesLocked) {
                 val touchSlop = viewConfiguration.touchSlop
                 val doubleTapTimeout = viewConfiguration.doubleTapTimeoutMillis
                 var lastUpTime = 0L
@@ -89,6 +90,7 @@ fun GestureHandler(
 
                     var totalPanX = 0f
                     var totalPanY = 0f
+                    var blockedByGestureLock = false
 
                     val startingX = down.position.x
                     val startingY = down.position.y
@@ -101,6 +103,12 @@ fun GestureHandler(
 
                     val longPressJob = scope.launch {
                         if (!longPressEnabled) return@launch
+                        if (areGesturesLocked) {
+                            // Swallow the hold so it does not fall through as a tap
+                            delay(viewConfiguration.longPressTimeoutMillis)
+                            blockedByGestureLock = true
+                            return@launch
+                        }
                         delay(viewConfiguration.longPressTimeoutMillis)
                         isLongPress = true
                         activeGesture = ActiveGesture.LongPress
@@ -137,7 +145,10 @@ fun GestureHandler(
 
                         if (!isLongPress && (abs(totalPanX) > touchSlop || abs(totalPanY) > touchSlop)) {
                             longPressJob.cancel()
-                            if (activeGesture == ActiveGesture.None) {
+                            if (areGesturesLocked) {
+                                // Gesture lock is on: swallow the swipe so it is not read as a tap
+                                blockedByGestureLock = true
+                            } else if (activeGesture == ActiveGesture.None) {
                                 activeGesture = if (abs(totalPanX) > abs(totalPanY)) {
                                     onGestureEvent(GestureEvent.PanXChange(start = true))
                                     ActiveGesture.PanX
@@ -178,6 +189,7 @@ fun GestureHandler(
 
                     when (activeGesture) {
                         ActiveGesture.None -> {
+                            if (blockedByGestureLock) return@awaitEachGesture
                             val tapTimeDelta = downTime - lastUpTime
                             if (isDoubletapping || (lastUpTime > 0 && tapTimeDelta < doubleTapTimeout)) {
                                 val position = if (startingX > size.width * 3 / 5) {

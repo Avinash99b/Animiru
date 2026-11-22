@@ -241,6 +241,7 @@ fun PlayerScreen(
                 panEnabled = panEnabled,
                 longPressEnabled = longPressEnabled,
                 areControlsLocked = uiData.isControlsLocked,
+                areGesturesLocked = uiData.isGesturesLocked,
                 onGestureEvent = viewModel::handleGestureEvent,
                 interactionSource = interactionSource,
             )
