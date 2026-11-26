@@ -29,6 +29,7 @@ object PlayerSettingsSubtitleScreen : SearchableSettings {
         val blacklist = subtitlePreferences.subtitleBlacklist
         val blackBars = subtitlePreferences.subtitleBlackBars
         val systemFonts = subtitlePreferences.subtitleSystemFonts
+        val disableSubsOnDub = subtitlePreferences.disableSubsOnDub
 
         return listOf(
             Preference.PreferenceItem.EditTextInfoPreference(
@@ -90,6 +91,11 @@ object PlayerSettingsSubtitleScreen : SearchableSettings {
             Preference.PreferenceItem.SwitchPreference(
                 preference = systemFonts,
                 title = stringResource(AMMR.strings.player_pref_subtitle_system_fonts),
+            ),
+            Preference.PreferenceItem.SwitchPreference(
+                preference = disableSubsOnDub,
+                title = stringResource(AMMR.strings.player_pref_disable_subs_on_dub),
+                subtitle = stringResource(AMMR.strings.player_pref_disable_subs_on_dub_summary),
             ),
         )
     }

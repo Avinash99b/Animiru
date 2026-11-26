@@ -167,6 +167,8 @@
     <string name="player_pref_subtitle_black_bars">Render on black bars</string>
     <string name="player_pref_subtitle_black_bars_summary">Display subtitles on black bars when available</string>
     <string name="player_pref_subtitle_system_fonts">Include system fonts</string>
+    <string name="player_pref_disable_subs_on_dub">Disable subtitles when using dub</string>
+    <string name="player_pref_disable_subs_on_dub_summary">Automatically turn off subtitles when a dubbed (non-original) audio track is selected</string>
 
     <!-- Player - misc -->
     <string name="player_speed" translatable="false">%.2fx</string>

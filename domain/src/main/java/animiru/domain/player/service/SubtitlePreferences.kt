@@ -23,6 +23,7 @@ class SubtitlePreferences(
     val subtitleBlacklist: Preference<String> = preferenceStore.getString("pref_subtitle_blacklist", "")
     val subtitleBlackBars: Preference<Boolean> = preferenceStore.getBoolean("pref_subtitle_black_bars", false)
     val subtitleSystemFonts: Preference<Boolean> = preferenceStore.getBoolean("pref_subtitle_system_fonts", false)
+    val disableSubsOnDub: Preference<Boolean> = preferenceStore.getBoolean("pref_disable_subs_on_dub", false)
 
     // Non-preferences
 

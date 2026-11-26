@@ -2269,6 +2269,7 @@ class PlayerViewModel(
             updateStateData { it.copy(hasLoadedAudio = true) }
         } else {
             selectAudio(preferredAudio, true)
+            applyDubSubtitlePreference(preferredAudio.trackId)
         }
     }
 
@@ -2432,6 +2433,34 @@ class PlayerViewModel(
                     )
                 },
             )
+        }
+
+        applyDubSubtitlePreference(id)
+    }
+
+    /**
+     * Honors the "Disable subtitles when using dub" preference: whenever the selected audio
+     * track is a dub, subtitles are turned off automatically. A manual subtitle selection is
+     * respected until the audio track changes again.
+     */
+    private fun applyDubSubtitlePreference(audioId: Int?) {
+        if (audioId == null || audioId < 0) return
+        if (!subtitlePreferences.disableSubsOnDub.get()) return
+
+        val (language, title) = stateData.value.audioTracks.firstOrNull { it.id == audioId }
+            ?.let { it.lang to it.title }
+            ?: stateData.value.externalAudioTracks.firstOrNull { it.id == audioId }
+                ?.let { it.lang to it.data.lang }
+            ?: return
+
+        if (!isDubAudioLanguage(language, title)) return
+
+        // Setting mpv's sid/secondary-sid to false hides subtitles without unloading them.
+        if (mpv.getPropertyInt("secondary-sid") != null) {
+            setPropertyBoolean("secondary-sid", false)
+        }
+        if (mpv.getPropertyInt("sid") != null) {
+            setPropertyBoolean("sid", false)
         }
     }
 
@@ -4082,3 +4111,54 @@ class PlayerViewModel(
 }
 
 private val PROGRESS_SAVE_DELAY = 2.seconds
+
+/**
+ * Language tags/names that identify the original (non-dubbed) audio, i.e. Japanese.
+ */
+private val JAPANESE_AUDIO_MARKERS = listOf("ja", "jpn", "japanese", "日本語", "nihongo")
+
+/**
+ * Language tags that carry no usable information about the audio language.
+ */
+private val UNKNOWN_AUDIO_LANGUAGES = setOf("", "und", "unknown", "undefined", "none", "mul")
+
+/**
+ * Language tags/names of common dub languages. Only used to classify a track when its
+ * language tag is undetermined and just a human-readable title is available.
+ */
+private val DUB_AUDIO_MARKERS = listOf(
+    "en", "eng", "english",
+    "es", "spa", "spanish", "espanol", "latino", "latam",
+    "pt", "por", "portugues", "portuguese", "pt-br",
+    "fr", "fra", "fre", "francais", "french",
+    "de", "deu", "ger", "deutsch", "german",
+    "it", "ita", "italiano", "italian",
+    "ru", "rus", "russian",
+    "hi", "hin", "hindi",
+    "ta", "tam", "tamil", "te", "tel", "telugu",
+    "ko", "kor", "korean",
+    "zh", "zho", "chi", "chinese", "中文",
+    "ar", "ara", "arabic",
+    "id", "ind", "indonesian", "th", "tha", "thai", "vi", "vie", "vietnamese",
+)
+
+/**
+ * Classifies an audio track as a dub. The original (Japanese) audio is never a dub, and an
+ * unknown language is never treated as a dub either.
+ */
+private fun isDubAudioLanguage(language: String?, title: String?): Boolean {
+    val lang = language.orEmpty().trim().lowercase()
+    val haystack = "$lang ${title.orEmpty().trim().lowercase()}".trim()
+    if (haystack.isEmpty()) return false
+
+    if (JAPANESE_AUDIO_MARKERS.any(haystack::containsToken)) return false
+
+    // A concrete, non-Japanese language tag means the audio is dubbed.
+    if (lang.isNotEmpty() && lang !in UNKNOWN_AUDIO_LANGUAGES) return true
+
+    // Language tag is undetermined; fall back to a recognizable dubbed-language name.
+    return DUB_AUDIO_MARKERS.any(haystack::containsToken)
+}
+
+private fun String.containsToken(token: String): Boolean =
+    Regex("(^|[^a-z0-9])${Regex.escape(token)}([^a-z0-9]|$)").containsMatchIn(this)
