@@ -4157,8 +4157,11 @@ private enum class AudioType { Sub, Dub, Unknown }
 
 /**
  * Markings that name a dub outright. Matched as whole words, case-insensitively.
+ *
+ * Deliberately does NOT contain "dual audio": a dual-audio release carries both the original
+ * and a dub, so the language of the *selected* track has to decide, not the title.
  */
-private val EXPLICIT_DUB_MARKERS = listOf("dub", "dubbed", "dubbing", "dublado", "dual audio")
+private val EXPLICIT_DUB_MARKERS = listOf("dub", "dubbed", "dubbing", "dublado")
 
 /**
  * Markings that name a sub outright. An explicit sub always wins over a language guess.
