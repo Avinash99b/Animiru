@@ -394,6 +394,11 @@ class PlayerViewModel(
                 .onEach { v -> updateUiData { it.copy(playerSpeedPref = v) } }
                 .launchIn(viewModelScope)
 
+            // Toggling "disable subtitles when using dub" mid-playback takes effect at once.
+            subtitlePreferences.disableSubsOnDub.changes()
+                .onEach { applyDubSubtitlePreference() }
+                .launchIn(viewModelScope)
+
             combine(
                 propFlow<Float>("video-zoom"),
                 propFlow<Float>("video-pan-x"),
@@ -2269,7 +2274,7 @@ class PlayerViewModel(
             updateStateData { it.copy(hasLoadedAudio = true) }
         } else {
             selectAudio(preferredAudio, true)
-            applyDubSubtitlePreference(preferredAudio.trackId)
+            applyDubSubtitlePreference()
         }
     }
 
@@ -2439,29 +2444,62 @@ class PlayerViewModel(
     }
 
     /**
-     * Honors the "Disable subtitles when using dub" preference: whenever the selected audio
-     * track is a dub, subtitles are turned off automatically. A manual subtitle selection is
-     * respected until the audio track changes again.
+     * Honors the "Disable subtitles when using dub" preference.
+     *
+     * The decision uses the data the source already hands us, most authoritative first:
+     *  1. the extension's own audio language label (`Video.audioTracks` -> `Track.lang`),
+     *     which is the only place a dub is named outright for streaming sources;
+     *  2. mpv's language/title metadata for the selected container track;
+     *  3. the current video's title and its hoster name, as a last resort
+     *     (extensions commonly label these "Dub"/"Sub").
+     *
+     * Subtitles are hidden only when the selected audio is a dub; an explicit sub marking
+     * always leaves them alone. A manual subtitle selection is respected until the audio
+     * track changes again.
      */
-    private fun applyDubSubtitlePreference(audioId: Int?) {
-        if (audioId == null || audioId < 0) return
+    private fun applyDubSubtitlePreference(audioId: Int? = null) {
         if (!subtitlePreferences.disableSubsOnDub.get()) return
 
-        val (language, title) = stateData.value.audioTracks.firstOrNull { it.id == audioId }
-            ?.let { it.lang to it.title }
-            ?: stateData.value.externalAudioTracks.firstOrNull { it.id == audioId }
-                ?.let { it.lang to it.data.lang }
-            ?: return
+        val aid = audioId?.takeIf { it >= 0 } ?: mpv.getPropertyInt("aid")
 
-        if (!isDubAudioLanguage(language, title)) return
+        val internal = aid?.let { id -> stateData.value.audioTracks.firstOrNull { it.id == id } }
+        val external = aid?.let { id -> stateData.value.externalAudioTracks.firstOrNull { it.id == id } }
+        val currentVideo = stateData.value.currentVideo
 
-        // Setting mpv's sid/secondary-sid to false hides subtitles without unloading them.
+        // Extensions describe external audio through `Track.lang`; mpv reports "und" for it.
+        val audioLang = internal?.lang
+            ?: external?.lang
+            ?: external?.data?.lang
+            ?: currentVideo?.audioTracks.orEmpty().takeIf { it.size == 1 }?.first()?.lang
+        val audioTitle = internal?.title ?: external?.data?.lang
+
+        val type = classifyAudioType(
+            audioLang = audioLang,
+            audioTitle = audioTitle,
+            videoTitle = currentVideo?.videoTitle,
+            hosterName = currentHosterName(),
+        )
+
+        if (type != AudioType.Dub) return
+
+        // Setting mpv's `sid`/`secondary-sid` to false hides subtitles without unloading them.
         if (mpv.getPropertyInt("secondary-sid") != null) {
             setPropertyBoolean("secondary-sid", false)
         }
         if (mpv.getPropertyInt("sid") != null) {
             setPropertyBoolean("sid", false)
         }
+    }
+
+    /**
+     * Name of the hoster the currently playing video came from, if it can be matched.
+     */
+    private fun currentHosterName(): String? {
+        val url = stateData.value.currentVideo?.videoUrl ?: return null
+        return stateData.value.hosterState
+            .filterIsInstance<HosterState.Ready>()
+            .firstOrNull { state -> state.videoList.any { it.videoUrl == url } }
+            ?.name
     }
 
     fun onTrackLoadedFailure(url: String) {
@@ -4113,20 +4151,35 @@ class PlayerViewModel(
 private val PROGRESS_SAVE_DELAY = 2.seconds
 
 /**
- * Language tags/names that identify the original (non-dubbed) audio, i.e. Japanese.
+ * What the audio that is currently playing is: a dub, the original (sub) audio, or unknown.
+ */
+private enum class AudioType { Sub, Dub, Unknown }
+
+/**
+ * Markings that name a dub outright. Matched as whole words, case-insensitively.
+ */
+private val EXPLICIT_DUB_MARKERS = listOf("dub", "dubbed", "dubbing", "dublado", "dual audio")
+
+/**
+ * Markings that name a sub outright. An explicit sub always wins over a language guess.
+ */
+private val EXPLICIT_SUB_MARKERS = listOf("sub", "subs", "subbed", "softsub", "hardsub")
+
+/**
+ * Japanese is the original audio of an anime, i.e. the sub/raw version.
  */
 private val JAPANESE_AUDIO_MARKERS = listOf("ja", "jpn", "japanese", "日本語", "nihongo")
 
 /**
  * Language tags that carry no usable information about the audio language.
  */
-private val UNKNOWN_AUDIO_LANGUAGES = setOf("", "und", "unknown", "undefined", "none", "mul")
+private val UNKNOWN_AUDIO_LANGUAGES = setOf("", "und", "unknown", "undefined", "none", "mul", "zxx")
 
 /**
- * Language tags/names of common dub languages. Only used to classify a track when its
- * language tag is undetermined and just a human-readable title is available.
+ * Language tags/names of common dub languages. Only consulted for the audio track itself,
+ * never for the video title, so a "1080p (Eng Sub)" title cannot be misread as a dub.
  */
-private val DUB_AUDIO_MARKERS = listOf(
+private val DUB_LANGUAGE_MARKERS = listOf(
     "en", "eng", "english",
     "es", "spa", "spanish", "espanol", "latino", "latam",
     "pt", "por", "portugues", "portuguese", "pt-br",
@@ -4143,21 +4196,43 @@ private val DUB_AUDIO_MARKERS = listOf(
 )
 
 /**
- * Classifies an audio track as a dub. The original (Japanese) audio is never a dub, and an
- * unknown language is never treated as a dub either.
+ * Classifies what is playing from the fields the source gives us.
+ *
+ * The audio track's own labels are authoritative: an explicit "sub"/"dub" marking there
+ * decides, then a known non-Japanese audio language means a dub. Only when the track tells
+ * us nothing do we fall back to the video title / hoster name, which extensions commonly
+ * label "Dub"/"Sub". Anything we cannot tell apart stays [AudioType.Unknown] and is left
+ * alone.
  */
-private fun isDubAudioLanguage(language: String?, title: String?): Boolean {
-    val lang = language.orEmpty().trim().lowercase()
-    val haystack = "$lang ${title.orEmpty().trim().lowercase()}".trim()
-    if (haystack.isEmpty()) return false
+private fun classifyAudioType(
+    audioLang: String?,
+    audioTitle: String?,
+    videoTitle: String? = null,
+    hosterName: String? = null,
+): AudioType {
+    val audioText = listOfNotNull(audioLang, audioTitle)
+        .joinToString(" ")
+        .trim()
+        .lowercase()
 
-    if (JAPANESE_AUDIO_MARKERS.any(haystack::containsToken)) return false
+    if (audioText.isNotEmpty()) {
+        if (EXPLICIT_SUB_MARKERS.any(audioText::containsToken)) return AudioType.Sub
+        if (EXPLICIT_DUB_MARKERS.any(audioText::containsToken)) return AudioType.Dub
+        if (JAPANESE_AUDIO_MARKERS.any(audioText::containsToken)) return AudioType.Sub
 
-    // A concrete, non-Japanese language tag means the audio is dubbed.
-    if (lang.isNotEmpty() && lang !in UNKNOWN_AUDIO_LANGUAGES) return true
+        // A concrete, non-Japanese language tag on the audio means the audio is dubbed.
+        val tag = audioLang.orEmpty().trim().lowercase()
+        if (tag.isNotEmpty() && tag !in UNKNOWN_AUDIO_LANGUAGES) return AudioType.Dub
+        if (DUB_LANGUAGE_MARKERS.any(audioText::containsToken)) return AudioType.Dub
+    }
 
-    // Language tag is undetermined; fall back to a recognizable dubbed-language name.
-    return DUB_AUDIO_MARKERS.any(haystack::containsToken)
+    val contextText = listOfNotNull(videoTitle, hosterName).joinToString(" ").trim().lowercase()
+    if (contextText.isNotEmpty()) {
+        if (EXPLICIT_DUB_MARKERS.any(contextText::containsToken)) return AudioType.Dub
+        if (EXPLICIT_SUB_MARKERS.any(contextText::containsToken)) return AudioType.Sub
+    }
+
+    return AudioType.Unknown
 }
 
 private fun String.containsToken(token: String): Boolean =
