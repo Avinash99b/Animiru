@@ -2235,6 +2235,13 @@ class PlayerViewModel(
             checkFileLoaded()
             selectAudioById(track.id, false)
         }
+
+        // External tracks arrive asynchronously, after the initial track load, and adding one
+        // re-selects it: `selectSubById` below turns subtitles back on. Re-assert the policy
+        // afterwards, otherwise a dub's subtitles reappear a moment after being switched off.
+        if (externalSubtitle.isNotEmpty() || externalAudio.isNotEmpty()) {
+            applyDubSubtitlePreference()
+        }
     }
 
     /**
@@ -4213,14 +4220,24 @@ private fun classifyAudioType(
     videoTitle: String? = null,
     hosterName: String? = null,
 ): AudioType {
+    // 1. The entry's own title, exactly as the extension labelled it. Streaming sources spell
+    //    the type out here ("HD-1 - Dub - 1080p", "1080p (Eng Sub)"), which makes it the most
+    //    reliable signal there is. It MUST be read before the audio track: those streams
+    //    frequently carry the original Japanese tag even on their dub entries, and reading
+    //    the language first made "Dub" titles classify as Sub and leave the subtitles on.
+    namedType(videoTitle)?.let { return it }
+
+    // 2. The hoster the entry came from ("AnimeKai (Dub)").
+    namedType(hosterName)?.let { return it }
+
+    // 3. The audio track's own label.
     val audioText = listOfNotNull(audioLang, audioTitle)
         .joinToString(" ")
         .trim()
         .lowercase()
 
     if (audioText.isNotEmpty()) {
-        if (EXPLICIT_SUB_MARKERS.any(audioText::containsToken)) return AudioType.Sub
-        if (EXPLICIT_DUB_MARKERS.any(audioText::containsToken)) return AudioType.Dub
+        namedType(audioText)?.let { return it }
         if (JAPANESE_AUDIO_MARKERS.any(audioText::containsToken)) return AudioType.Sub
 
         // A concrete, non-Japanese language tag on the audio means the audio is dubbed.
@@ -4229,13 +4246,20 @@ private fun classifyAudioType(
         if (DUB_LANGUAGE_MARKERS.any(audioText::containsToken)) return AudioType.Dub
     }
 
-    val contextText = listOfNotNull(videoTitle, hosterName).joinToString(" ").trim().lowercase()
-    if (contextText.isNotEmpty()) {
-        if (EXPLICIT_DUB_MARKERS.any(contextText::containsToken)) return AudioType.Dub
-        if (EXPLICIT_SUB_MARKERS.any(contextText::containsToken)) return AudioType.Sub
-    }
-
     return AudioType.Unknown
+}
+
+/**
+ * Reads an explicit dub/sub marking out of a free-text label, or null when the label says
+ * nothing about the type. "Dub" is tested first: a label naming a dub is naming the audio,
+ * whereas "sub" in the same label usually only describes the subtitle format ("softsub").
+ */
+private fun namedType(text: String?): AudioType? {
+    if (text.isNullOrBlank()) return null
+    val lower = text.lowercase()
+    if (EXPLICIT_DUB_MARKERS.any(lower::containsToken)) return AudioType.Dub
+    if (EXPLICIT_SUB_MARKERS.any(lower::containsToken)) return AudioType.Sub
+    return null
 }
 
 private fun String.containsToken(token: String): Boolean =
